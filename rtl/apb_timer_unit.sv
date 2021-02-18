@@ -32,6 +32,7 @@
 `define REF_CLK_EN_BIT      'd7
 `define PRESCALER_START_BIT 'd8
 `define PRESCALER_STOP_BIT  'd15
+`define MODE_MTIME_BIT      'd30
 `define MODE_64_BIT         'd31
 
 module apb_timer_unit
@@ -50,10 +51,10 @@ module apb_timer_unit
     output logic                      PREADY,
     output logic                      PSLVERR,
     
-    input logic                       ref_clk_i,
-        
-    input  logic                      event_lo_i,
-    input  logic                      event_hi_i,
+    input logic 		     ref_clk_i,
+    input logic                      stoptimer_i, 		     
+    input logic 		     event_lo_i,
+    input logic 		     event_hi_i,
     
     output logic                      irq_lo_o,
     output logic                      irq_hi_o,
@@ -80,8 +81,8 @@ module apb_timer_unit
    
    logic 			      s_enable_count_lo,s_enable_count_hi,s_enable_count_prescaler_lo,s_enable_count_prescaler_hi;
    logic 			      s_reset_count_lo,s_reset_count_hi,s_reset_count_prescaler_lo,s_reset_count_prescaler_hi;
+   logic 	   s_target_greater_lo, s_target_greater_h ;
    logic 			      s_target_reached_lo,s_target_reached_hi,s_target_reached_prescaler_lo, s_target_reached_prescaler_hi;
-   logic 			      s_clear_reset_lo, s_clear_reset_hi;
    
    
    
@@ -161,11 +162,11 @@ module apb_timer_unit
 	  end
 	
 	// INPUT EVENTS: HIGHER PRIORITY
-	if ( ((event_hi_i == 1) && (s_cfg_hi[`IEM_BIT] == 1'b1)) | s_start_timer_hi == 1 )
+	if ( ( s_cfg_lo_reg[`MODE_64_BIT] == 1'b0 )&& ((event_hi_i == 1) && (s_cfg_hi[`IEM_BIT] == 1'b1)) | s_start_timer_hi == 1 )
 	  s_cfg_hi[`ENABLE_BIT] = 1;
 	else
 	  begin
-	     if ( ( s_cfg_hi_reg[`MODE_64_BIT] == 1'b0 ) && ( s_cfg_hi[`ONE_SHOT_BIT] == 1'b1 ) && ( s_target_reached_hi == 1'b1 ) ) // ONE SHOT FEATURE: DISABLES TIMER ONCE THE TARGET IS REACHED IN 32 BIT MODE
+	     if ( ( s_cfg_lo_reg[`MODE_64_BIT] == 1'b0 ) && ( s_cfg_hi[`ONE_SHOT_BIT] == 1'b1 ) && ( s_target_reached_hi == 1'b1 ) ) // ONE SHOT FEATURE: DISABLES TIMER ONCE THE TARGET IS REACHED IN 32 BIT MODE
 	       s_cfg_hi[`ENABLE_BIT] = 0;
 	   	else begin
 	   		if ( ( s_cfg_lo[`ONE_SHOT_BIT] == 1'b1 ) && ( s_target_reached_lo == 1'b1 ) && ( s_target_reached_hi == 1'b1 ) )
@@ -317,52 +318,52 @@ module apb_timer_unit
 	s_enable_count_prescaler_hi = 1'b0;
 	
 	// 32 bit mode lo counter
-	if ( s_cfg_lo_reg[`ENABLE_BIT] == 1'b1 )
+	if ( (s_cfg_lo_reg[`ENABLE_BIT] == 1'b1)  && ( s_cfg_lo_reg[`MODE_64_BIT] == 1'b0 ))
 	  begin
 	     if ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b0 && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b0 ) // prescaler disabled, ref clock disabled
 	       begin
-		  s_enable_count_lo = 1'b1;
+		  s_enable_count_lo = ~stoptimer_i; // 1'b1;
 	       end
 	     else
 	       if ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b0 && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler disabled, ref clock enabled
 		 begin
-		    s_enable_count_lo = s_ref_clk_edge;
+		    s_enable_count_lo = s_ref_clk_edge & ~stoptimer_i;
 		 end
 	       else
 		 if ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b1 && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler enabled, ref clock enabled
 		   begin
-		      s_enable_count_prescaler_lo = s_ref_clk_edge;
-		      s_enable_count_lo           = s_target_reached_prescaler_lo;
+		      s_enable_count_prescaler_lo = s_ref_clk_edge & ~stoptimer_i;
+		      s_enable_count_lo           = s_target_reached_prescaler_lo & ~stoptimer_i ;
 		   end
 		 else // prescaler enabled, ref clock disabled
 		   begin
-		      s_enable_count_prescaler_lo = 1'b1;
-		      s_enable_count_lo           = s_target_reached_prescaler_lo;
+		      s_enable_count_prescaler_lo = ~stoptimer_i; // 1'b1;
+		      s_enable_count_lo           = s_target_reached_prescaler_lo & ~stoptimer_i;
 		   end
 	  end
 	
 	// 32 bit mode hi counter
-	if ( s_cfg_hi_reg[`ENABLE_BIT] == 1'b1 ) // counter hi enabled
+	if ( (s_cfg_hi_reg[`ENABLE_BIT] == 1'b1) && ( s_cfg_lo_reg[`MODE_64_BIT] == 1'b0 ) ) // counter hi enabled
 	  begin
 	     if ( s_cfg_hi_reg[`PRESCALER_EN_BIT] == 1'b0 && s_cfg_hi_reg[`REF_CLK_EN_BIT] == 1'b0 ) // prescaler disabled, ref clock disabled
 	       begin
-		  s_enable_count_hi = 1'b1;
+		  s_enable_count_hi = ~stoptimer_i ; //1'b1;
 	       end
 	     else
 	       if ( s_cfg_hi_reg[`PRESCALER_EN_BIT] == 1'b0 && s_cfg_hi_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler disabled, ref clock enabled
 		 begin
-		    s_enable_count_hi = s_ref_clk_edge;
+		    s_enable_count_hi = s_ref_clk_edge & ~stoptimer_i;
 		 end
 	       else
 		 if ( s_cfg_hi_reg[`PRESCALER_EN_BIT] == 1'b1 && s_cfg_hi_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler enabled, ref clock enabled
 		   begin
-		      s_enable_count_prescaler_hi = s_ref_clk_edge;
-		      s_enable_count_hi           = s_target_reached_prescaler_hi;
+		      s_enable_count_prescaler_hi = s_ref_clk_edge & ~stoptimer_i;
+		      s_enable_count_hi           = s_target_reached_prescaler_hi & ~stoptimer_i;
 		   end
 		 else // prescaler enabled, ref clock disabled
 		   begin
-		      s_enable_count_prescaler_hi = 1'b1;
-		      s_enable_count_hi           = s_target_reached_prescaler_hi;
+		      s_enable_count_prescaler_hi = ~stoptimer_i ; //1'b1;
+		      s_enable_count_hi           = s_target_reached_prescaler_hi & ~stoptimer_i;
 		   end
 	  end
    
@@ -371,25 +372,25 @@ module apb_timer_unit
 	  begin
 	    if ( ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b0 ) && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b0 ) // prescaler disabled, ref clock disabled
 	    begin
-		  	s_enable_count_lo = 1'b1;
-		  	s_enable_count_hi = ( s_timer_val_lo == 32'hFFFFFFFF );
+		  	s_enable_count_lo = ~stoptimer_i & 1'b1;
+		  	s_enable_count_hi = ( s_timer_val_lo == 32'hFFFFFFFF ) & ~stoptimer_i;
 	    end
 	    else if ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b0 && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler disabled, ref clock enabled
 		begin
-		   s_enable_count_lo = s_ref_clk_edge;
-		   s_enable_count_hi = s_ref_clk_edge_del && ( s_timer_val_lo == 32'hFFFFFFFF );
+		   s_enable_count_lo = s_ref_clk_edge & ~stoptimer_i;
+		   s_enable_count_hi = s_ref_clk_edge_del & ( s_timer_val_lo == 32'hFFFFFFFF ) & ~stoptimer_i;
 		end
        	else if ( s_cfg_lo_reg[`PRESCALER_EN_BIT] == 1'b1 && s_cfg_lo_reg[`REF_CLK_EN_BIT] == 1'b1 ) // prescaler enabled, ref clock enabled
 		begin
-		    s_enable_count_prescaler_lo = s_ref_clk_edge;
-			s_enable_count_lo           = s_target_reached_prescaler_lo;
-   		    s_enable_count_hi = s_target_reached_prescaler_lo && s_ref_clk_edge_del && ( s_timer_val_lo == 32'hFFFFFFFF );
+		    s_enable_count_prescaler_lo = s_ref_clk_edge & ~stoptimer_i;
+			s_enable_count_lo           = s_target_reached_prescaler_lo & ~stoptimer_i;
+   		    s_enable_count_hi = s_target_reached_prescaler_lo & s_ref_clk_edge_del & ( s_timer_val_lo == 32'hFFFFFFFF ) & ~stoptimer_i;
 		end
 		else  // prescaler enabled, ref clock disabled
 		begin
-		    s_enable_count_prescaler_lo = 1'b1;
-		    s_enable_count_lo           = s_target_reached_prescaler_lo;
-		    s_enable_count_hi = s_target_reached_prescaler_lo && ( s_timer_val_lo == 32'hFFFFFFFF );
+		    s_enable_count_prescaler_lo = ~stoptimer_i & 1'b1;
+		    s_enable_count_lo           = s_target_reached_prescaler_lo & ~stoptimer_i;
+		    s_enable_count_hi = s_target_reached_prescaler_lo & ( s_timer_val_lo == 32'hFFFFFFFF ) & ~stoptimer_i;
 		end
 	  end	
      end
@@ -399,16 +400,23 @@ module apb_timer_unit
      begin
 	irq_lo_o = 1'b0;
 	irq_hi_o = 1'b0;
-	
+      // 32 bit mode
 	if ( s_cfg_lo_reg[`MODE_64_BIT] == 1'b0 )
 	  begin
 	     irq_lo_o = s_target_reached_lo & s_cfg_lo_reg[`IRQ_BIT];
 	     irq_hi_o = s_target_reached_hi & s_cfg_hi_reg[`IRQ_BIT];
 	  end
-	else
-	  begin
-	     irq_lo_o = s_target_reached_lo & s_target_reached_hi & s_cfg_lo_reg[`IRQ_BIT];
-	  end
+	else begin
+	 // 64 bit non-mtime mode
+	 if (s_cfg_lo_reg[`MODE_MTIME_BIT] == 1'b0) begin 
+	    irq_lo_o = s_target_reached_lo & s_target_reached_hi & s_cfg_lo_reg[`IRQ_BIT];
+	 end
+	 else begin
+	    irq_lo_o = (s_target_reached_hi & (s_target_greater_lo | s_target_reached_lo)) |
+		       s_target_greater_hi;
+	 end
+	 
+      end
      end
    
    //**********************************************************
@@ -433,8 +441,8 @@ module apb_timer_unit
           end
      end
    
-   assign s_ref_clk_edge = ( ( s_ref_clk1 == 1'b1 ) & ( s_ref_clk2 == 1'b0 ) ) ? 1'b1  : 1'b0;
-   assign s_ref_clk_edge_del = ( ( s_ref_clk2 == 1'b1 ) & ( s_ref_clk3 == 1'b0 ) ) ? 1'b1  : 1'b0;
+   assign s_ref_clk_edge = ( ( s_ref_clk1 == 1'b1 ) & ( s_ref_clk2 == 1'b0 ) ) ? ~stoptimer_i : 1'b0;
+   assign s_ref_clk_edge_del = ( ( s_ref_clk2 == 1'b1 ) & ( s_ref_clk3 == 1'b0 ) ) ? ~stoptimer_i: 1'b0;
    
    //**********************************************************
    //*************** COUNTERS *********************************
@@ -483,7 +491,7 @@ module apb_timer_unit
       .enable_count_i(s_enable_count_lo),
       .reset_count_i(s_reset_count_lo),
       .compare_value_i(s_timer_cmp_lo_reg),
-      
+      .target_greater_o(s_target_greater_lo),
       .counter_value_o(s_timer_val_lo),
       .target_reached_o(s_target_reached_lo)
    );
@@ -499,7 +507,7 @@ module apb_timer_unit
       .enable_count_i(s_enable_count_hi),
       .reset_count_i(s_reset_count_hi),
       .compare_value_i(s_timer_cmp_hi_reg),
-      
+      .target_greater_o(s_target_greater_hi),
       .counter_value_o(s_timer_val_hi),
       .target_reached_o(s_target_reached_hi)
       );
